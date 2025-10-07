@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """
-run_etl.py - Clean + Simple Polished Dashboard
 - Ingest CSV/XLSX files from input/
-- Clean Coffee Shop dataset
-- Produce output/cleaned_data.xlsx and output/dashboard.xlsx
-Dashboard style: no gridlines, no overlapping merges, 6 KPIs (2 rows x 3 cols), clean charts.
+- Clean dataset
+- Produce cleaned_data and dashboard
 """
 
 import os
@@ -14,7 +12,7 @@ from datetime import datetime
 import pandas as pd
 import yaml
 
-# ---------------- CONFIG ----------------
+# CONFIG
 DEFAULT_CONFIG = {
     "input_folder": "input",
     "output_folder": "output",
@@ -61,7 +59,7 @@ OUTPUT_DASH = OUTPUT_FOLDER / CONFIG["output_dashboard_file"]
 COL_MAP = CONFIG["col_map"]
 CATEGORY_MAP = CONFIG["category_map"]
 
-# ---------------- INGEST ----------------
+# INGEST
 def ensure_folders():
     INPUT_FOLDER.mkdir(parents=True, exist_ok=True)
     OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
@@ -91,7 +89,7 @@ def ingest_files(folder: Path) -> pd.DataFrame:
     return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
 
-# ---------------- CLEAN & ENRICH ----------------
+# CLEAN & FORMAT
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df.columns = [str(c).strip() for c in df.columns]
@@ -109,42 +107,42 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def clean_and_enrich(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    # Trim strings
+    # Trim strings and replace common nulls
     for col in df.select_dtypes(include="object").columns:
         df[col] = df[col].astype(str).str.strip().replace({"nan": pd.NA, "None": pd.NA})
-    # Dates
+    
     if "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"], errors="coerce", dayfirst=True)
-    # Time
+    
     if "time" in df.columns:
         try:
             df["time"] = pd.to_datetime(df["time"], format="%H:%M:%S", errors="coerce").dt.time
         except Exception:
             df["time"] = pd.to_datetime(df["time"], errors="coerce").dt.time
-    # Numerics
+    
     for col in ["qty", "unit_price"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(r"[^0-9.\-]", "", regex=True), errors="coerce")
-    # sale amount
+    
     if "qty" in df.columns and "unit_price" in df.columns:
         df["sale_amt"] = df["qty"] * df["unit_price"]
-    # grains
+    
     if "date" in df.columns:
         df["day"] = df["date"].dt.date
         df["month"] = df["date"].dt.to_period("M").astype(str)
         df["weekday"] = df["date"].dt.day_name()
-    # product fallback
+    
     if "product" in df.columns:
         df["product"] = df["product"].fillna("UNKNOWN_PRODUCT")
     else:
         df["product"] = df.get("product_detail", df.get("product_id", "UNKNOWN_PRODUCT"))
-    # category mapping optionally
+    
     if "category" in df.columns and CATEGORY_MAP:
         df["category"] = df["category"].map(CATEGORY_MAP).fillna(df["category"])
     return df.drop_duplicates()
 
 
-# ---------------- AGGREGATE ----------------
+# AGGREGATE
 def compute_aggregates(df: pd.DataFrame) -> dict:
     def safe_group(by, agg):
         try:
@@ -193,7 +191,7 @@ def compute_aggregates(df: pd.DataFrame) -> dict:
     }
 
 
-# ---------------- EXPORT / DASHBOARD ----------------
+# DASHBOARD
 def export_cleaned(df: pd.DataFrame, path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_excel(path, index=False)
@@ -201,29 +199,20 @@ def export_cleaned(df: pd.DataFrame, path: Path):
 
 
 def create_simple_dashboard(aggs: dict, cleaned_df: pd.DataFrame, out_path: Path):
-    """
-    Simpler dashboard:
-    - Hide gridlines
-    - 6 KPIs arranged 2 rows x 3 cols
-    - Clean charts (monthly, daily, category, location, top products)
-    - No overlapping merges
-    - Helper sheets hidden
-    """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     writer = pd.ExcelWriter(out_path, engine="xlsxwriter", datetime_format="yyyy-mm-dd")
     workbook = writer.book
 
-    # write helper sheets
+    # helper sheets
     cleaned_df.to_excel(writer, sheet_name="CleanedData", index=False)
     aggs["monthly"].to_excel(writer, sheet_name="Monthly", index=False)
     aggs["daily"].to_excel(writer, sheet_name="Daily", index=False)
     aggs["product"].to_excel(writer, sheet_name="ProductRank", index=False)
-    aggs["category"].to_excel(writer, sheet_name="Category", index=False)
+    aggs[`"category"].to_excel(writer, sheet_name="Category", index=False)
     aggs["location"].to_excel(writer, sheet_name="Location", index=False)
 
     # Dashboard sheet
     dash = workbook.add_worksheet("Dashboard")
-    # Hide Excel gridlines for cleaner look
     dash.hide_gridlines(2)
     dash.set_zoom(110)
     dash.set_column("A:L", 16)
@@ -243,11 +232,6 @@ def create_simple_dashboard(aggs: dict, cleaned_df: pd.DataFrame, out_path: Path
     dash.merge_range("A1:F1", "Coffee Shop Sales Dashboard", title_fmt)
     dash.merge_range("A2:F2", "Automated ETL output — drop files into input/ and run", subtitle_fmt)
 
-    # KPI layout: two rows x three columns
-    # We'll use labels in row 4 and values in row 5, spanning one column each to avoid merges.
-    # Column positions for KPI slots: A,B,C  D,E,F  G,H,I used visually but we'll place values in center columns for readability.
-
-    # Define KPI positions (label_cell, value_cell)
     kpi_positions = [
         ("A4", "A5"),  # KPI 1
         ("C4", "C5"),  # KPI 2
@@ -267,7 +251,7 @@ def create_simple_dashboard(aggs: dict, cleaned_df: pd.DataFrame, out_path: Path
         ("Top Product", k.get("top_product", "N/A"), "text")
     ]
 
-    # Write KPI labels and values
+    # KPI labels and values
     for (label_cell, value_cell), (label, value, vtype) in zip(kpi_positions, kpi_texts):
         dash.write(label_cell, label, kpi_label_fmt)
         if vtype == "money":
@@ -284,7 +268,7 @@ def create_simple_dashboard(aggs: dict, cleaned_df: pd.DataFrame, out_path: Path
     dash.write("E26", "Sales by Store", section_header)
     dash.write("A42", "Top Products", section_header)
 
-    # Charts using helper sheets (no data tables on dashboard)
+
     # Monthly chart
     if not aggs["monthly"].empty:
         mrows = len(aggs["monthly"])
@@ -298,7 +282,7 @@ def create_simple_dashboard(aggs: dict, cleaned_df: pd.DataFrame, out_path: Path
         ch.set_legend({"position": "none"})
         dash.insert_chart("A12", ch, {"x_scale": 1.4, "y_scale": 1.1})
 
-    # Daily line chart
+    
     if not aggs["daily"].empty:
         drows = len(aggs["daily"])
         ch2 = workbook.add_chart({"type": "line"})
@@ -311,7 +295,7 @@ def create_simple_dashboard(aggs: dict, cleaned_df: pd.DataFrame, out_path: Path
         ch2.set_legend({"position": "none"})
         dash.insert_chart("E12", ch2, {"x_scale": 1.4, "y_scale": 1.1})
 
-    # Category bar
+
     if not aggs["category"].empty:
         crow = min(len(aggs["category"]), 10)
         ch3 = workbook.add_chart({"type": "bar"})
@@ -324,7 +308,7 @@ def create_simple_dashboard(aggs: dict, cleaned_df: pd.DataFrame, out_path: Path
         ch3.set_legend({"position": "none"})
         dash.insert_chart("A28", ch3, {"x_scale": 1.2, "y_scale": 0.9})
 
-    # Location chart
+   
     if not aggs["location"].empty:
         lrows = min(len(aggs["location"]), 10)
         ch4 = workbook.add_chart({"type": "column"})
@@ -337,7 +321,7 @@ def create_simple_dashboard(aggs: dict, cleaned_df: pd.DataFrame, out_path: Path
         ch4.set_legend({"position": "none"})
         dash.insert_chart("E28", ch4, {"x_scale": 1.2, "y_scale": 0.9})
 
-    # Top products
+   
     if not aggs["product"].empty:
         prow = min(10, len(aggs["product"]))
         ch5 = workbook.add_chart({"type": "bar"})
@@ -350,12 +334,12 @@ def create_simple_dashboard(aggs: dict, cleaned_df: pd.DataFrame, out_path: Path
         ch5.set_legend({"position": "none"})
         dash.insert_chart("A44", ch5, {"x_scale": 1.4, "y_scale": 1.0})
 
-    # Footer timestamp
+    # Footer
     footer_fmt = workbook.add_format({"italic": True, "font_size": 9, "font_color": "#666666"})
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     dash.write("A58", f"Generated on {ts} • run_etl.py", footer_fmt)
 
-    # Hide helper sheets
+    
     for sheet in ["Monthly", "Daily", "ProductRank", "Category", "Location", "CleanedData"]:
         try:
             workbook.get_worksheet_by_name(sheet).hide()
@@ -366,7 +350,7 @@ def create_simple_dashboard(aggs: dict, cleaned_df: pd.DataFrame, out_path: Path
     print(f"Wrote simple dashboard → {out_path}")
 
 
-# ---------------- MAIN ----------------
+# MAIN
 def main():
     start = datetime.now()
     ensure_folders()
