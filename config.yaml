@@ -1,0 +1,21 @@
+input_folder: "input"
+output_folder: "output"
+output_clean_file: "cleaned_data.xlsx"
+output_dashboard_file: "dashboard.xlsx"
+
+# Map raw → canonical
+col_map:
+  transaction_id: transaction_id
+  transaction_date: date
+  transaction_time: time
+  transaction_qty: qty
+  store_id: store_id
+  store_location: store_location
+  product_id: product_id
+  unit_price: unit_price
+  product_category: category
+  product_type: subcategory
+  product_detail: product
+
+# Category normalization (optional)
+category_map: {}

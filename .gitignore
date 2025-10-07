@@ -1,0 +1,26 @@
+# Virtual environment
+venv/
+env/
+
+# Input/output data
+input/
+output/
+
+# Python cache and logs
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Build artifacts
+build/
+dist/
+*.spec
+
+# System files
+.DS_Store
+Thumbs.db
+
+# VS Code settings
+.vscode/
